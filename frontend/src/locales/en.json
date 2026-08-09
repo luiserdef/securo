@@ -553,6 +553,7 @@
     "typeCreditCard": "Credit Card",
     "typeInvestment": "Investment",
     "typeWallet": "Wallet",
+    "typeDebitCard": "Debit Card",
     "creditLimit": "Credit limit",
     "statementCloseDay": "Statement close day",
     "paymentDueDay": "Payment due day",

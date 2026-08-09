@@ -553,6 +553,7 @@
     "typeCreditCard": "Tarjeta de crédito",
     "typeInvestment": "Inversión",
     "typeWallet": "Cartera",
+    "typeDebitCard": "Tarjeta de débito",
     "creditLimit": "Límite de crédito",
     "statementCloseDay": "Día de cierre de estado",
     "paymentDueDay": "Día de vencimiento",
