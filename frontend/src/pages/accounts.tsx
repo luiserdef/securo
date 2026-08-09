@@ -48,6 +48,7 @@ const ACCOUNT_TYPE_OPTIONS = [
   { value: 'credit_card', labelKey: 'accounts.typeCreditCard' },
   { value: 'investment', labelKey: 'accounts.typeInvestment' },
   { value: 'wallet', labelKey: 'accounts.typeWallet' },
+  { value: 'debit_card', labelKey: 'accounts.typeDebitCard' },
 ] as const
 
 function daysUntil(dateStr: string | null): number | null {
