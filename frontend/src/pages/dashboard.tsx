@@ -36,7 +36,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { CheckCircle2, CalendarIcon, Paperclip, Target, ArrowUpDown, HelpCircle, EyeClosed } from 'lucide-react'
+import { CheckCircle2, CalendarIcon, Paperclip, Target, ArrowUpDown, HelpCircle, EyeClosed, Layers  } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ICON_MAP } from '@/lib/category-icons'
 import { PageHeader } from '@/components/page-header'
@@ -364,16 +364,33 @@ export default function DashboardPage() {
   const uncategorizedAmount = summary?.pending_categorization_amount ?? 0
 
   const [catSortDesc, setCatSortDesc] = useState(true)
+  const [groupOthers, setGroupOthers] = useState(true)  
 
   // Merged category bars data
-  const mergedCategories = useMemo(() => {
-    if (!spending) return []
-    const budgetMap = new Map<string, (typeof budgetComparison extends (infer T)[] | undefined ? T : never)>()
-    if (budgetComparison) {
-      for (const b of budgetComparison) {
-        budgetMap.set(b.category_id, b)
-      }
+const mergedCategories = useMemo(() => {
+  if (!spending) return []
+  const budgetMap = new Map<string, (typeof budgetComparison extends (infer T)[] | undefined ? T : never)>()
+  if (budgetComparison) {
+    for (const b of budgetComparison) {
+      budgetMap.set(b.category_id, b)
     }
+  }
+
+  type MergedItem = {
+    category_id: string
+    category_name: string
+    category_icon: string | null
+    category_color: string | null
+    actual: number
+    budget_amount: number | null
+    percentage_used: number | null
+    momPct: number | null
+    isGrouped: boolean
+    groupedCount?: number
+  }
+
+  // --- Individual View (toggle off) ---
+  if (!groupOthers) {
     return spending
       .filter(s => s.category_id !== null)
       .map(s => {
@@ -395,10 +412,97 @@ export default function DashboardPage() {
           budget_amount: budget ? Number(budget.budget_amount) : null,
           percentage_used: budget?.percentage_used ?? null,
           momPct,
-        }
+          isGrouped: false,
+        } as MergedItem
       })
       .sort((a, b) => catSortDesc ? b.actual - a.actual : a.actual - b.actual)
-  }, [spending, budgetComparison, catSortDesc])
+  }
+
+  // Grouped View (toggle on, any month)
+  const items: MergedItem[] = []
+  const seenCategoryIds = new Set<string>()
+  let othersTotal = 0
+  let othersPrevTotal = 0
+  let othersCount = 0
+  let othersBudget = 0
+
+  for (const s of spending) {
+    if (s.category_id === null) continue
+    seenCategoryIds.add(s.category_id)
+    const budget = budgetMap.get(s.category_id)
+    const actual = s.total
+    const hasBudget = budget != null && Number(budget.budget_amount) > 0
+
+    if (hasBudget) {
+      const prevAmount = Number(budget.prev_month_amount)
+      let momPct: number | null = null
+      if (prevAmount > 0) {
+        momPct = ((actual - prevAmount) / prevAmount) * 100
+      } else if (actual > 0) {
+        momPct = 100
+      }
+      items.push({
+        category_id: s.category_id!,
+        category_name: s.category_name,
+        category_icon: s.category_icon,
+        category_color: s.category_color,
+        actual,
+        budget_amount: Number(budget.budget_amount),
+        percentage_used: budget.percentage_used ?? null,
+        momPct,
+        isGrouped: false,
+      })
+    } else {
+      othersTotal += actual
+      othersPrevTotal += budget?.prev_month_amount != null ? Number(budget.prev_month_amount) : 0
+      othersCount += 1
+    }
+  }
+  
+  //Categories with asigned budget but no movement in that month
+  if (budgetComparison) {
+    for (const b of budgetComparison) {
+      if (seenCategoryIds.has(b.category_id)) continue
+      if (Number(b.budget_amount) <= 0) continue
+      othersBudget = b.category_name === 'Others' ? Number(b.budget_amount) : 0
+      if (b.category_name === 'Others') continue
+      
+      items.push({
+        category_id: b.category_id,
+        category_name: b.category_name,
+        category_icon: b.category_icon ?? null,
+        category_color: b.category_color ?? null,
+        actual: 0,
+        budget_amount: Number(b.budget_amount),
+        percentage_used: 0,
+        momPct: null,
+        isGrouped: false,
+      })
+    }
+  }
+
+  if (othersCount > 0) {
+    let othersMomPct: number | null = null
+    if (othersPrevTotal > 0) {
+      othersMomPct = ((othersTotal - othersPrevTotal) / othersPrevTotal) * 100
+    } else if (othersTotal > 0) {
+      othersMomPct = 100
+    }
+    items.push({
+      category_id: '__others__',
+      category_name: t('dashboard.otherCategories', { count: othersCount, defaultValue: 'Otras categorías' }),
+      category_icon: null,
+      category_color: null,
+      actual: othersTotal,
+      budget_amount: othersBudget,
+      percentage_used: (othersTotal / othersBudget) * 100,
+      momPct: othersMomPct,
+      isGrouped: true,
+      groupedCount: othersCount,
+    })
+  }
+  return items.sort((a, b) => catSortDesc ? b.actual - a.actual : a.actual - b.actual)
+}, [spending, budgetComparison, catSortDesc, groupOthers, t])
 
   const [txPage, setTxPage] = useState(1)
   const [txSortDesc, setTxSortDesc] = useState(true)
@@ -740,13 +844,25 @@ export default function DashboardPage() {
         <div className="bg-card rounded-xl border border-border shadow-sm flex flex-col max-h-[420px]">
           <div className="px-5 py-4 border-b border-border shrink-0 flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground">{t('dashboard.spendingByCategory')}</p>
-            <button
-              onClick={() => setCatSortDesc(v => !v)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            >
-              <ArrowUpDown size={13} />
-              {catSortDesc ? t('dashboard.sortHighest') : t('dashboard.sortLowest')}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setGroupOthers(v => !v)}
+                // disabled={selectedMonth !== currentMonth()}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground"
+              >
+                <Layers size={13} />
+                {groupOthers
+                  ? t('dashboard.groupedView')
+                  : t('dashboard.detailedView')}
+              </button>
+              <button
+                onClick={() => setCatSortDesc(v => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <ArrowUpDown size={13} />
+                {catSortDesc ? t('dashboard.sortHighest') : t('dashboard.sortLowest')}
+              </button>
+            </div>
           </div>
           <div className="p-3 overflow-y-auto flex-1">
             {spendingLoading ? (
@@ -768,13 +884,15 @@ export default function DashboardPage() {
                     <div
                       key={item.category_id}
                       className="rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => setDrillDown({
+                      onClick={() => {
+                        if (item.isGrouped) return
+                        setDrillDown({
                         title: t('dashboard.drillDownCategory', { category: item.category_name, month: monthLabelStr }),
                         category_id: item.category_id,
                         type: 'debit',
                         from: monthStart,
                         to: monthEnd,
-                      })}
+                      })}}
                     >
                       <div className="flex items-center gap-3">
                         <CategoryIcon icon={item.category_icon} color={item.category_color} size="lg" />
