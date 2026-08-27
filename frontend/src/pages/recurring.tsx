@@ -391,6 +391,7 @@ function RecurringForm({
           <select className={selectClass} value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringTransaction['frequency'])}>
             <option value="monthly">{t('recurring.monthly')}</option>
             <option value="quarterly">{t('recurring.quarterly')}</option>
+            <option value="semiannual">{t('recurring.semiannual')}</option>
             <option value="weekly">{t('recurring.weekly')}</option>
             <option value="yearly">{t('recurring.yearly')}</option>
           </select>

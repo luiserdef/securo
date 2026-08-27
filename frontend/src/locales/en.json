@@ -1072,6 +1072,7 @@
     "monthly": "Monthly",
     "quarterly": "Quarterly",
     "weekly": "Weekly",
+    "semiannual": "Semiannual",
     "yearly": "Yearly",
     "dayOfMonth": "Day of month",
     "weekendAdjustment": "Weekend adjustment",

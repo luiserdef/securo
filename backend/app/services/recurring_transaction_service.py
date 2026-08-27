@@ -168,6 +168,8 @@ def _advance_date(
         return _advance_months(current, 1, target_day)
     if frequency == "quarterly":
         return _advance_months(current, 3, target_day)
+    if frequency == "semiannual":
+        return _advance_months(current, 6, target_day)
     if frequency == "yearly":
         year = current.year + 1
         day = min(target_day, calendar.monthrange(year, current.month)[1])
