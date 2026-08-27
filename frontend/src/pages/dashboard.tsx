@@ -476,6 +476,8 @@ const mergedCategories = useMemo(() => {
   let othersPrevTotal = 0
   let othersCount = 0
   let othersBudget = 0
+  let othersIcon = null
+  let othersIconColor = null
 
   for (const s of spending) {
     if (s.category_id === null) continue
@@ -516,6 +518,8 @@ const mergedCategories = useMemo(() => {
       if (seenCategoryIds.has(b.category_id)) continue
       if (Number(b.budget_amount) <= 0) continue
       othersBudget = b.category_name === 'Others' ? Number(b.budget_amount) : 0
+      othersIcon = b.category_name === 'Others' ? b.category_icon : null
+      othersIconColor = b.category_name === 'Others' ? b.category_color : null
       if (b.category_name === 'Others') continue
       
       items.push({
@@ -542,8 +546,8 @@ const mergedCategories = useMemo(() => {
     items.push({
       category_id: '__others__',
       category_name: t('dashboard.otherCategories', { count: othersCount, defaultValue: 'Otras categorías' }),
-      category_icon: null,
-      category_color: null,
+      category_icon: othersIcon,
+      category_color: othersIconColor,
       actual: othersTotal,
       budget_amount: othersBudget,
       percentage_used: (othersTotal / othersBudget) * 100,
