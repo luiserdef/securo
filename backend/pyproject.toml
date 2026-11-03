@@ -46,6 +46,10 @@ dependencies = [
     # agents feature pay zero cost (the package is installed but never
     # imported).
     "fastembed>=0.4.0",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "google-auth",
 ]
 
 [project.optional-dependencies]
