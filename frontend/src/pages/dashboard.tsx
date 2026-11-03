@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
+import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi, payees as payeesApi, rules as rulesApi, googleAuth as googleApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -172,6 +172,10 @@ export default function DashboardPage() {
   const monthParam = monthStart
   const uiLocale = i18n.resolvedLanguage ?? i18n.language
   const monthLabelStr = monthLabel(selectedMonth, uiLocale)
+  const [syncEmailsDate, setsyncEmailsDate] = useState<string | null>(null)
+  const [isGoogleUserAuth, setIsGoogleUserAuth] = useState(false)
+  const [googleUserAuthURL, setGoogleUserAuthURL] = useState<string>("")
+  const [lastSyncEmails, setLastSyncEmails] = useState<string>("")
 
   const handleMonthChange = (newMonth: string) => {
     setSelectedMonth(newMonth)
@@ -327,6 +331,85 @@ export default function DashboardPage() {
       } else {
         toast.error(t('common.error'))
       }
+    },
+  })
+  
+  useEffect(() => {
+    validateGoogleAuth.mutate()
+  },[])
+
+  const openGoogleAuthWindow = ()=>{
+      window.open(
+        googleUserAuthURL,
+        "google-auth",
+        "width=500,height=600,noopener,noreferrer"
+      )
+  }
+
+  const validateGoogleAuth = useMutation({
+    mutationFn: () => googleApi.validateAuth(),
+    onSuccess: (result) => {
+      const isAuth = result.isAuth ?? false
+      const lastSyncDate = result.last_sync_date
+
+      setIsGoogleUserAuth(isAuth)
+
+      if (lastSyncDate != ""){
+        const date = new Date(lastSyncDate)
+        const dateFormat = date.toLocaleString("es-PA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        })
+        setLastSyncEmails(dateFormat)
+      }
+
+      if (isAuth == false){
+        setGoogleUserAuthURL(result.redirect_uri)
+      }
+
+      return 
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  }) 
+
+  const syncEmailTransaction = useMutation({
+    mutationFn: () => dashboard.syncEmails(),
+    onSuccess: (result) => {
+      const total_count = result.total_count ?? 0
+      const lastSyncDate = result.last_sync_date
+      const success_count = result.success_count ?? 0
+
+      if (total_count == 0) {
+        toast.success("No emails to sync")    
+      }
+      else{
+        toast.success(`Total Email sync Transaction: ${success_count} of ${total_count}`)
+      }
+
+      if (lastSyncDate != ""){
+        const date = new Date(lastSyncDate)
+        const dateFormat = date.toLocaleString("es-PA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        })
+        setLastSyncEmails(dateFormat)
+      }
+      
+    },
+      onError: (error) => {
+      toast.error(extractApiError(error))
     },
   })
 
@@ -699,6 +782,24 @@ const mergedCategories = useMemo(() => {
         title={monthLabel(selectedMonth, uiLocale).replace(/^\w/, c => c.toUpperCase())}
         action={
           <div className="flex items-center gap-1">
+          {isGoogleUserAuth ? (
+            <button
+              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
+              onClick={()=> syncEmailTransaction.mutate()}
+            >
+              <span className="text-sm">Sync Emails</span>
+              <span className="text-xs text-muted-foreground">Last update:{lastSyncEmails}</span>
+            </button>
+          ):(
+            <button
+              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
+              onClick={()=> openGoogleAuthWindow()}
+            >
+              <span className="text-sm">Auth Google</span>
+              <span className="text-xs text-muted-foreground">Auth for sync Emails</span>
+            </button>
+          )
+          }
             <button
               className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:border-border hover:text-foreground transition-all text-base"
               onClick={() => handleMonthChange(shiftMonth(selectedMonth, -1))}

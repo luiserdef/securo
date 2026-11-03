@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -29,6 +30,17 @@ from app.schemas.bank_connection import (
 )
 from app.services import connection_service
 from app.services.transfer_detection_service import detect_transfer_pairs, unlink_transfer_pair
+
+#CUSTOM
+import hashlib
+import hmac
+import json
+import time
+from app.core.config import get_settings
+import logging
+logger = logging.getLogger(__name__)
+#END CUSTOM
+
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
 
@@ -284,3 +296,95 @@ async def unlink_transfer(
     if not unlinked:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer pair not found")
     await session.commit()
+
+@router.get("/validate-google-auth")
+async def get_google_auth(
+    session: AsyncSession = Depends(get_async_session),
+    ctx: WorkspaceContext = Depends(current_writable_workspace)
+):
+    try:
+        return await connection_service.get_google_auth(session,ctx.user_id) 
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.get("/auth/google/callback")
+async def google_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+    session: AsyncSession = Depends(get_async_session),
+):
+    ok = False
+    message = "Autorización cancelada"
+
+    if not error and code and state:
+        try:
+            payload, _, signature = state.partition(".")
+            secret = get_settings().secret_key.get_secret_value().encode("utf-8")
+            expected = hmac.new(
+                secret, f"google-gmail-oauth-state:{payload}".encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+
+            # compare_digest evita ataques de temporización
+            if not signature or not hmac.compare_digest(signature, expected):
+                raise ValueError("Estado inválido")
+
+            data = json.loads(bytes.fromhex(payload).decode("utf-8"))
+
+            if data.get("p") != "google-gmail":
+                raise ValueError("Estado inválido")
+            if int(data["exp"]) < time.time():
+                raise PermissionError("expired")
+
+            user_id = uuid.UUID(data["uid"])
+            await connection_service.google_auth_token(
+                code, session, user_id
+            )
+            ok, message = True, "Autenticado correctamente"
+
+        except PermissionError:
+            message = "La autenticación expiró, inténtalo de nuevo"
+        except (KeyError, ValueError, TypeError, AttributeError):
+            message = "Estado inválido"
+        except Exception:
+            logger.exception("Error en callback de Google")
+            message = "Error al guardar la conexión"
+
+    settings = get_settings()
+    fronten_url = settings.frontend_url
+
+    payload_msg = json.dumps({
+        "type": "google-auth-success" if ok else "google-auth-error",
+        "message": message,
+    }).replace("</", "<\\/")
+    origin = json.dumps(fronten_url)  # origen real de tu frontend
+
+    return HTMLResponse(content=f"""
+    <html>
+    <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+        <p>{"Autenticado correctamente. Esta ventana se cerrará." if ok else "No se pudo autenticar. Puedes cerrar esta ventana."}</p>
+        <script>
+        if (window.opener) {{
+            window.opener.postMessage({payload_msg}, {origin});
+        }}
+        setTimeout(() => window.close(), 800);
+        </script>
+    </body>
+    </html>
+    """)
+
+
+
+    # await connection_service.google_auth_token(session,ctx.user_id)   
+
+    # html = """
+    # <html>
+    #   <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+    #     <p>Autenticado correctamente. Esta ventana se cerrará automáticamente.</p>
+    #     <script>
+    #       setTimeout(() => window.close(), 1500);
+    #     </script>
+    #   </body>
+    # </html>
+    # """
+    # return HTMLResponse(content=html)          

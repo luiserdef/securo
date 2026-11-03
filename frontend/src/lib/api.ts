@@ -1105,6 +1105,10 @@ export const dashboard = {
     const { data } = await api.get('/dashboard/balance-history', { params: { month, ...(extra.params ?? {}) }, ...(extra.paramsSerializer ? { paramsSerializer: extra.paramsSerializer } : {}) })
     return data
   },
+  syncEmails:async():Promise<{success_count:number; total_count:number, last_sync_date:string }> =>{
+    const { data } = await api.post('/dashboard/sync-email-transactions')
+    return data
+  }
 }
 
 // Assets
@@ -1886,4 +1890,12 @@ export const publicInvoices = {
     return data
   },
   pdfUrl: (token: string): string => `/api/public/invoices/${token}/pdf`,
+}
+
+export const googleAuth = {
+    validateAuth:async():Promise<{ isAuth:boolean,redirect_uri:string, last_sync_date:string }> =>{
+    const { data } = await api.get('/connections/validate-google-auth')
+    return data
+  }
+
 }

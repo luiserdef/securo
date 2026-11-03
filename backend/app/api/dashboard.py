@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.core.workspace_context import WorkspaceContext, current_workspace
 from app.schemas.dashboard import DashboardSummary, SpendingByCategory, MonthlyTrend, ProjectedTransaction, BalanceHistory
-from app.services import dashboard_service
+from app.schemas.transaction import TransactionEmailSyncRequest
+from app.services import dashboard_service, transaction_service
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -86,3 +87,19 @@ async def get_projected_transactions(
     except ValueError as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.post("/sync-email-transactions", response_model=TransactionEmailSyncRequest)
+async def create_transactions_emails(
+    session: AsyncSession = Depends(get_async_session),
+    ctx: WorkspaceContext = Depends(current_workspace),
+):
+    try:
+        return await transaction_service.sync_transactions_email(
+            session, ctx.user_id,
+        )
+    except ValueError as e:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except RuntimeError as e:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))

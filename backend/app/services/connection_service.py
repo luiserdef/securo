@@ -52,6 +52,17 @@ from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
 
+#CUSTOM
+import asyncio
+from app.models.auth_connections import AuthConnection
+from app.providers.google_gmail import GmailAuth
+from app.agents.services.crypto import decrypt, encrypt
+import json
+import time
+import hmac
+#END CUSTOM
+
+
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
@@ -2215,3 +2226,112 @@ async def delete_connection(
 
     await session.commit()
     return True
+
+def _reauth(gmail_auth: GmailAuth, status: str) -> dict:
+    return {
+        "isAuth": False,
+        "status": status,
+        "redirect_uri": gmail_auth.get_auth_url(),
+    }
+
+async def get_credentials_provider(db: AsyncSession, user_id: uuid.UUID, provider: str) -> str | None:
+    result = await db.execute(
+        select(AuthConnection).where(
+            AuthConnection.user_id == user_id,
+            AuthConnection.provider == provider,
+        )
+    )
+    connection = result.scalar_one_or_none()
+
+    if connection is None:
+        return None
+
+    return connection
+
+async def get_google_auth(
+    session: AsyncSession,
+    user_id: uuid.UUID
+)-> dict:
+
+    print("\n=============== Authenticating for Gmail ===============")
+
+    gmail_auth = GmailAuth()
+    conn = await get_credentials_provider(session,user_id,"google-gmail")
+
+    token_info = None
+    if conn and conn.credentials:
+        plaintext = decrypt(conn.credentials)
+        if plaintext:
+            try:
+                token_info = json.loads(plaintext)
+            except json.JSONDecodeError:
+                token_info = None
+
+    creds, refreshed = await asyncio.to_thread(gmail_auth.get_valid_credentials, token_info)
+
+    if creds:
+        if refreshed and conn:
+            conn.credentials = encrypt(json.dumps(gmail_auth.to_dict(creds)))
+            conn.status = "active"
+            # conn.last_used_at = datetime.now(timezone.utc)
+            if creds.expiry:  # google-auth devuelve expiry naive en UTC
+                conn.expires_at = creds.expiry.replace(tzinfo=timezone.utc)
+            await session.commit()
+        return {"isAuth": True, "redirect_uri": "", "last_sync_date": conn.last_used_at}
+
+    if conn:
+        conn.status = "expired"
+        await session.commit()
+
+    secret = get_settings().secret_key.get_secret_value().encode("utf-8")
+    payload = json.dumps(
+        {"uid": str(user_id), "p": "google-gmail", "exp": int(time.time()) + 600}
+    ).encode("utf-8").hex()  # hex evita problemas con "=" y caracteres en la URL
+    signature = hmac.new(
+        secret, f"google-gmail-oauth-state:{payload}".encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    state = f"{payload}.{signature}"
+
+    return {
+        "isAuth": False,
+        "redirect_uri": gmail_auth.get_auth_url(state),
+        "last_sync_date": "",
+    }
+
+async def google_auth_token(
+    token_code:str,
+    session: AsyncSession,
+    user_id: uuid.UUID
+)-> int:
+    provider = "google-gmail"
+
+    gmail_auth = GmailAuth()
+
+    try:
+        creds = await asyncio.to_thread(gmail_auth.exchange_code, token_code)
+    except Exception as e:
+        logger.exception("Falló el intercambio del code de Google")
+        raise ValueError("Código de autorización inválido o expirado") from e
+    
+    encrypted = encrypt(json.dumps(gmail_auth.to_dict(creds)))
+    expires_at = creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry else None
+
+    conn = await get_credentials_provider(session, user_id,provider)
+
+    if conn is None:
+        conn = AuthConnection(
+            user_id=user_id,
+            provider=provider,
+            auth_type="oauth2",
+            credentials=encrypted,
+            status="active"
+        )
+        session.add(conn)
+    else:
+        conn.credentials = encrypted
+        conn.status = "active"
+        conn.expires_at = expires_at
+        conn.last_used_at = datetime.now(timezone.utc)
+
+    await session.commit()
+    return 

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date as _Date
+from datetime import date as _Date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
@@ -299,3 +299,8 @@ class TransactionImportRequest(BaseModel):
     filename: str = ""
     detected_format: str = ""
     detect_duplicates: bool = True
+
+class TransactionEmailSyncRequest(BaseModel):
+    success_count: int
+    total_count: int
+    last_sync_date: Optional[datetime] = None

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/securo"
+    # database_url: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/securo"
 
     # Auth
     secret_key: SecretStr = SecretStr("change-me-in-production")
@@ -157,6 +158,10 @@ class Settings(BaseSettings):
     # the process environment are ignored by pydantic-settings anyway; without
     # this, the very same key written into the .env file aborted startup with
     # "Extra inputs are not permitted".
+
+    # GoogleSecret
+    gemimini_api_key: SecretStr = SecretStr("")
+
     model_config = SettingsConfigDict(
         env_file=(".env", Path(__file__).resolve().parents[2] / ".env"),
         secrets_dir=CREDENTIALS_DIRECTORY,

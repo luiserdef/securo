@@ -1,6 +1,5 @@
 import re
 import uuid
-from datetime import date
 from decimal import Decimal
 from typing import Optional, cast
 
@@ -34,6 +33,15 @@ from app.services._query_filters import (
 )
 from app.services.recurring_transaction_service import _advance_date
 
+
+
+#CUSTOM
+from app.providers.google_gmail import GmailMessagesData
+from app.models.auth_connections import AuthConnection
+from types import SimpleNamespace
+from app.agents.services.crypto import decrypt, encrypt
+from datetime import date, datetime, timezone
+#END CUSTOM
 
 async def _ensure_category_in_workspace(
     session: AsyncSession,
@@ -1936,3 +1944,190 @@ async def bulk_delete_transactions(
     )
     await session.commit()
     return len(valid_ids)
+
+
+async def get_credentials_provider(db: AsyncSession, user_id: uuid.UUID, provider: str) -> str | None:
+    result = await db.execute(
+        select(AuthConnection).where(
+            AuthConnection.user_id == user_id,
+            AuthConnection.provider == provider,
+        )
+    )
+    connection = result.scalar_one_or_none()
+
+    if connection is None:
+        return None
+
+    return connection
+
+async def sync_transactions_email(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    mode:Optional[str] ="web",
+)-> dict:
+
+    count = 0  
+    bankname= ""
+    email_transaction = []
+
+    emails_to_sync = [
+        {
+            "bank": "BG Main",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "3e63eecb-5f24-4dc8-8fba-2e2754a73e1b",
+            "sender": "mensajesyalertas@bgeneral.com",
+            "subject": "te transfirió",
+            "bodyContains": "te envió la siguiente transacción",
+            "type":"credit"
+        },
+        {
+            "bank": "BAC Smartcash",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "c617823c-ee1c-4f5c-93a6-9e6a5df830fc",
+            "sender": "notificacion_pa@pa.bac.net",
+            "subject": "Transaccion Realizada con su Tarjeta",
+            "bodyContains": "Se acaba de realizar una compra con tu tarjeta",
+            "type":"debit"
+        },
+        {
+            "bank": "BG Main",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "3e63eecb-5f24-4dc8-8fba-2e2754a73e1b",
+            "sender": "notificaciones@yappy.com.pa",
+            "subject": "Te enviaron por Yappy",
+            "bodyContains": "Te enviaron por Yappy",
+            "type":"credit"
+        },
+        {
+            "bank": "BG Main",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "3e63eecb-5f24-4dc8-8fba-2e2754a73e1b",
+            "sender": "notificaciones@yappy.com.pa",
+            "subject": "Enviaste un Yappy",
+            "bodyContains": "Enviaste por Yappy",
+            "type":"credit"
+        },
+        {
+            "bank": "BG Main",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "3e63eecb-5f24-4dc8-8fba-2e2754a73e1b",
+            "sender": "mensajesyalertas@bgeneral.com",
+            "subject": "Recarga de transporte",
+            "bodyContains": "Enviaste por Yappy",
+            "type":"debit"
+        },
+        {
+            "bank": "BG Main",
+            "user_id":"f4bce998-e9c9-4210-a809-786fcd30335a",
+            "workspace_id":"ba079886-880a-419e-9d63-ebd5746b6286",
+            "account_id": "3e63eecb-5f24-4dc8-8fba-2e2754a73e1b",
+            "sender": "notificaciones@yappy.com.pa",
+            "subject": "Pagaste por Yappy",
+            "bodyContains": "Pagaste por Yappy",
+            "type":"debit"
+        }
+    ]
+
+    # delete when model is created
+    emails_to_sync = [
+        SimpleNamespace(**email)
+        for email in emails_to_sync
+    ]
+
+    conn = await get_credentials_provider(session,user_id,"google-gmail")
+
+    if conn and conn.credentials:
+        token_info_creds = decrypt(conn.credentials)
+    else:
+        raise ValueError("User need to authenticate")
+
+    if not emails_to_sync:
+        raise ValueError("No data email to sync") 
+
+    try:
+        gmail = GmailMessagesData(token_info_creds)
+    except Exception as e:
+        raise ValueError(e)   
+
+    summary = gmail.get_email_summary()
+    if not summary:
+        last_sync_date = datetime.now(timezone.utc)
+        conn.last_used_at = last_sync_date.replace(tzinfo=timezone.utc) if last_sync_date.tzinfo is None else last_sync_date
+        await session.commit() 
+        return {
+            "success_count": 0,
+            "total_count":0,
+            "last_sync_date": last_sync_date,
+        }           
+
+    for email_data in summary:
+        account_id_sync = None
+        matched_config = None
+
+        for email_config in emails_to_sync:
+            if (email_config.subject.lower() in email_data["subject"].lower() 
+                    and email_config.sender.lower() in email_data["sender"].lower()
+                ):
+                    account_id_sync = email_config.account_id
+                    matched_config = email_config
+                    break
+        if account_id_sync:
+            email_data["account_id"] = account_id_sync
+            email_data["user_id"] = matched_config.user_id
+            email_data["workspace_id"] = matched_config.workspace_id
+
+            data = gmail.extract_transaction_data(email_data["raw_message"])
+            print(email_data["raw_message"])
+            email_data["transaction_data"] = data
+
+    total_count = len(summary)
+    success_count = 0
+    for transaction_email in summary:
+        try:
+            async with session.begin_nested():
+                transaction_data = transaction_email["transaction_data"]
+                date_value = transaction_data["date"] or transaction_email.get("date")
+
+                if isinstance(date_value, str):
+                    date_value = datetime.fromisoformat(date_value).date()
+
+                email_transaction = Transaction(
+                    user_id = transaction_email["user_id"],
+                    workspace_id = transaction_email["workspace_id"],
+                    account_id= transaction_email["account_id"],
+                    description= f"{transaction_data["description"]}",
+                    amount = transaction_data["amount"],
+                    currency = "USD",
+                    notes= transaction_data["note"],
+                    type = transaction_data["type"],
+                    status= "posted",
+                    source= "manual",
+                    date= date_value
+                )
+                session.add(email_transaction)
+                await session.flush()
+                await stamp_primary_amount(session, user_id, email_transaction)
+            
+            gmail.updateEmailLabel(transaction_email["email_id"])
+            success_count += 1   
+        except Exception as e:
+            continue
+
+    await session.commit() 
+
+    last_sync_date = datetime.now(timezone.utc)
+    print("ultima fecha")
+    print(last_sync_date)
+    conn.last_used_at = last_sync_date.replace(tzinfo=timezone.utc) if last_sync_date.tzinfo is None else last_sync_date
+    await session.commit()
+
+    return {
+        "success_count": success_count,
+        "total_count":total_count,
+        "last_sync_date": last_sync_date,
+    }         
