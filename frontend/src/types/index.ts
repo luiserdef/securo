@@ -682,11 +682,7 @@ export interface RecurringTransaction {
   amount: number
   currency: string
   type: 'debit' | 'credit'
-<<<<<<< HEAD
-  frequency: 'monthly' | 'quarterly' | 'semiannual' | 'weekly' | 'yearly'
-=======
   frequency: 'monthly' | 'quarterly' | 'semiannual' | 'weekly' | 'biweekly' | 'yearly'
->>>>>>> origin/main
   weekend_adjustment: 'none' | 'previous_friday' | 'next_monday'
   day_of_month: number | null
   start_date: string
