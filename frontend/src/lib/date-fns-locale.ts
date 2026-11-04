@@ -1,5 +1,5 @@
 import type { Locale } from 'date-fns'
-import { enUS, es, it, pl, pt, ptBR, ru, uk, de, fr, nl, sk } from 'date-fns/locale'
+import { enUS, es, it, pl, pt, ptBR, ru, uk, de, fr, nl, sk, hu, cs, el, hi, ja } from 'date-fns/locale'
 
 import { resolveSupportedLang } from '@/lib/i18n'
 
@@ -16,6 +16,11 @@ const DATE_FNS_LOCALE: Record<ReturnType<typeof resolveSupportedLang>, Locale> =
   fr,
   nl,
   sk,
+  hu,
+  cs,
+  el,
+  hi,
+  ja,
 }
 
 export function resolveDateFnsLocale(language?: string | null): Locale {

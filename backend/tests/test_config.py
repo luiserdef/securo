@@ -25,10 +25,11 @@ def test_env_file_is_anchored_to_backend_dir():
     assert backend_env in tuple(Path(p) for p in env_files)
 
 
-def test_env_file_with_unknown_keys_still_loads(tmp_path: Path, secrets: Path):
+def test_env_file_with_unknown_keys_still_loads(tmp_path: Path, secrets: Path, monkeypatch):
     """The .env is shared with Docker Compose and the optional modules, so it
     holds keys Settings doesn't declare (COMPOSE_PROFILES, FRONTEND_PORT,
     AGENTS_*). Unknown keys must be ignored, not abort startup."""
+    monkeypatch.delenv("SECRET_KEY")
     env_file = tmp_path / ".env"
     env_file.write_text(
         "SECRET_KEY=from-env-file\n"
@@ -160,3 +161,38 @@ def test_local_auth_disabled_requires_complete_oidc_configuration(
             local_auth_enabled=False,
             _secrets_dir=str(secrets),
         )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('"openid email profile groups"', "openid email profile groups"),
+        ("'openid email profile groups'", "openid email profile groups"),
+        ('  "openid email profile"  ', "openid email profile"),
+        ("openid email profile", "openid email profile"),
+        ("openid", "openid"),
+    ],
+)
+def test_oidc_scopes_strips_surrounding_quotes(monkeypatch, raw: str, expected: str):
+    """Deploy scripts that source the .env with a shell force users to quote
+    values with spaces, and some panels keep those quotes in the value; the
+    provider must still receive clean scope tokens (#887)."""
+    monkeypatch.setenv("OIDC_SCOPES", raw)
+
+    assert Settings(_env_file=None).oidc_scopes == expected
+
+
+def test_empty_frontend_url_uses_frontend_port(monkeypatch):
+    """docker-compose.yml passes FRONTEND_URL empty when unset (no nested
+    default, which podman-compose < 1.6.0 mangles: #1162) plus FRONTEND_PORT."""
+    monkeypatch.setenv("FRONTEND_URL", "")
+    monkeypatch.setenv("FRONTEND_PORT", "3132")
+
+    assert Settings(_env_file=None).frontend_url == "http://localhost:3132"
+
+
+def test_set_frontend_url_is_used_as_is(monkeypatch):
+    monkeypatch.setenv("FRONTEND_URL", "https://securo.example.com")
+    monkeypatch.setenv("FRONTEND_PORT", "3132")
+
+    assert Settings(_env_file=None).frontend_url == "https://securo.example.com"

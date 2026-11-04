@@ -104,6 +104,74 @@ async def test_create_recurring_skip_first_quarterly(client, auth_headers, test_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("frequency", "start_date", "day_of_month", "expected_next"),
+    [
+        ("biweekly", "2026-01-05", None, "2026-01-19"),
+        ("semiannual", "2026-01-31", 31, "2026-07-31"),
+    ],
+    ids=["biweekly", "semiannual"],
+)
+async def test_create_recurring_skip_first_new_frequencies(
+    client,
+    auth_headers,
+    test_account,
+    frequency,
+    start_date,
+    day_of_month,
+    expected_next,
+):
+    response = await client.post(
+        "/api/recurring-transactions",
+        json={
+            "description": f"{frequency} regression",
+            "amount": 100.00,
+            "currency": "BRL",
+            "type": "debit",
+            "frequency": frequency,
+            "day_of_month": day_of_month,
+            "start_date": start_date,
+            "skip_first": True,
+            "account_id": str(test_account.id),
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["frequency"] == frequency
+    assert data["next_occurrence"] == expected_next
+
+
+@pytest.mark.asyncio
+async def test_generate_pending_button_covers_auto_generate_off(client, auth_headers, test_account):
+    """The endpoint behind Generate Pending also creates schedules whose
+    auto-generate toggle is off (issue #1145)."""
+    create_resp = await client.post(
+        "/api/recurring-transactions",
+        json={
+            "description": "Manual rent",
+            "amount": 900.00,
+            "currency": "BRL",
+            "type": "debit",
+            "frequency": "monthly",
+            "start_date": "2026-02-01",
+            "account_id": str(test_account.id),
+            "auto_generate": False,
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+    assert create_resp.json()["auto_generate"] is False
+
+    gen_resp = await client.post(
+        "/api/recurring-transactions/generate",
+        headers=auth_headers,
+    )
+    assert gen_resp.status_code == 200
+    assert gen_resp.json()["generated"] >= 1
+
+
+@pytest.mark.asyncio
 async def test_generate_pending_creates_transactions(client, auth_headers, test_account):
     """Generate pending creates transactions and advances next_occurrence."""
     # Create a recurring that's already past due

@@ -8,11 +8,13 @@ allocation table really is N:N — the claim the whole schema rests on.
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import use_resolved_timezone
 from app.models.account import Account
 from app.models.invoice import Invoice, InvoiceAllocation
 from app.models.transaction import Transaction
@@ -38,6 +40,10 @@ def build_invoice(**overrides) -> Invoice:
         setattr(invoice, key, value)
     if not hasattr(invoice, "allocations") or invoice.allocations is None:
         invoice.allocations = []
+    if "deductions" not in overrides:
+        invoice.deductions = []
+    if "installments" not in overrides:
+        invoice.installments = []
     return invoice
 
 
@@ -204,7 +210,16 @@ async def credit(session: AsyncSession, workspace, test_user) -> Transaction:
 
 
 async def create(session, workspace, user, **data):
-    payload = {"total": Decimal("1000.00"), "due_date": TODAY + timedelta(days=10)}
+    # `issue_date` is pinned to the module's TODAY rather than left to
+    # `create_invoice`'s wall-clock default. Without it the helper builds a
+    # due date from a frozen TODAY while the service stamps the real date, so
+    # every test here starts failing on its own once real time passes
+    # TODAY + 10 days, for no reason to do with the ledger.
+    payload = {
+        "total": Decimal("1000.00"),
+        "issue_date": TODAY,
+        "due_date": TODAY + timedelta(days=10),
+    }
     payload.update(data)
     invoice = await svc.create_invoice(session, workspace.id, user.id, payload)
     await session.commit()
@@ -388,6 +403,20 @@ class TestAgingBuckets:
         summary = await svc.aging_summary(session, workspace.id, TODAY)
         assert summary["outstanding"] == Decimal("500.00")
         assert live.id in {i.id for i in summary["upcoming"]}
+
+    async def test_received_this_month_uses_the_application_timezone(
+        self, session: AsyncSession, workspace, test_user, credit
+    ):
+        invoice = await create(session, workspace, test_user)
+        allocated = await svc.allocate(session, invoice, credit.id, Decimal("100.00"))
+        allocated.allocated_at = datetime(2026, 9, 1, 1, tzinfo=timezone.utc)
+        await session.commit()
+
+        with use_resolved_timezone(ZoneInfo("America/Bahia")):
+            summary = await svc.aging_summary(session, workspace.id, date(2026, 9, 1))
+
+        # 01:00 UTC is still August 31 in Bahia, so it is not September cash.
+        assert summary["received_this_month"] == Decimal("0.00")
 
 
 @pytest.mark.asyncio

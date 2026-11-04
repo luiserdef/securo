@@ -100,6 +100,7 @@ class TransactionUpdate(BaseModel):
     amount_primary: Optional[Decimal] = None
     fx_rate_used: Optional[Decimal] = None
     is_ignored: Optional[bool] = None
+    exclude_from_pnl: Optional[bool] = None
     # Manual status override (posted=settled, pending=not yet settled). Lets the
     # user mark a manually-entered transaction as settled once it clears,
     # or flip a synced row back to pending before the next sync.
@@ -129,7 +130,7 @@ class InstallmentSeriesCreate(BaseModel):
     # Period between installments. Defaults to monthly. Matches the
     # recurring-transaction frequencies so "repeat as installments" offers
     # the same cadence choices as a recurring bill.
-    frequency: Literal["monthly", "quarterly", "weekly", "yearly"] = "monthly"
+    frequency: Literal["monthly", "quarterly", "semiannual", "weekly", "biweekly", "yearly"] = "monthly"
 
     @model_validator(mode="after")
     def validate_amounts(self):
@@ -155,6 +156,19 @@ class TransactionInvoiceLink(BaseModel):
     amount: Decimal
 
 
+class TransactionTransferCounterpart(BaseModel):
+    """The other leg of a linked transfer, as seen from a list row.
+
+    Filled only by the paginated list, one query per page (issue #810),
+    so the badge on a row can name the account the transfer is linked
+    to without a per-row request. The dialog keeps using the dedicated
+    transfer-pair endpoint, which carries date and amount too.
+    """
+
+    account_id: uuid.UUID
+    account_name: str
+
+
 class TransactionRead(TransactionBase):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -174,6 +188,10 @@ class TransactionRead(TransactionBase):
     payee_name: Optional[str] = None
     notes: Optional[str] = None
     transfer_pair_id: Optional[uuid.UUID] = None
+    # Other leg of the transfer this row belongs to, when it is one.
+    # The paginated list fills it per page (issue #810); other endpoints
+    # leave it null.
+    transfer_counterpart: Optional[TransactionTransferCounterpart] = None
     amount_primary: Optional[float] = None
     fx_rate_used: Optional[float] = None
     fx_fallback: bool = False
@@ -199,6 +217,13 @@ class TransactionRead(TransactionBase):
     # instead of a generic "shared" badge.
     parent_owner_name: Optional[str] = None
     is_ignored: bool = False
+    exclude_from_pnl: bool = False
+    # Account balance right after this row, set only when the list asked for
+    # it on one non-credit-card account's unfiltered ledger (#1202). The
+    # primary-currency value is null when the account is already in it, or
+    # when no real rate is available (#1165).
+    running_balance: Optional[float] = None
+    running_balance_primary: Optional[float] = None
 
     @model_validator(mode="after")
     def reflect_ignored_category(self):
@@ -265,6 +290,14 @@ class BulkTagsRequest(BaseModel):
     tags: list[str]
 
 
+class DescriptionSuggestion(BaseModel):
+    """A description typed before, with what was last filed under it."""
+
+    description: str
+    category_id: Optional[uuid.UUID] = None
+    payee_id: Optional[uuid.UUID] = None
+
+
 class TransferRead(BaseModel):
     debit: TransactionRead
     credit: TransactionRead
@@ -282,6 +315,13 @@ class TransactionImport(TransactionBase):
     notes: Optional[str] = None
 
 
+class FailedRow(BaseModel):
+    line_number: int
+    description: str
+    raw_value: str
+    error_reason: str
+
+
 class TransactionImportPreview(BaseModel):
     transactions: list[TransactionImport]
     detected_format: str
@@ -291,6 +331,7 @@ class TransactionImportPreview(BaseModel):
     # Set when a CSV's columns could not be auto-detected. The preview still
     # succeeds (with no transactions) so the UI can show the mapping dropdowns.
     parse_error: Optional[str] = None
+    failed_rows: list[FailedRow] = []
 
 
 class TransactionImportRequest(BaseModel):

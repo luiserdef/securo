@@ -1,5 +1,6 @@
-import { useState, type ElementType } from 'react'
-import { Building2, PiggyBank, CreditCard, TrendingUp, Wallet } from 'lucide-react'
+import { useState } from 'react'
+import { Building2 } from 'lucide-react'
+import { getAccountTypeConfig } from '@/lib/account-type-config'
 import { cn } from '@/lib/utils'
 
 // Account-type → icon/color, the fallback shown when an account has no bank

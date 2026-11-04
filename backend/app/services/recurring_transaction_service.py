@@ -3,9 +3,10 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today, get_workspace_timezone, today_in
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.recurring_transaction import RecurringTransaction
@@ -106,11 +107,9 @@ async def update_recurring_transaction(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    if (
-        "weekend_adjustment" in update_data
-        and update_data["weekend_adjustment"] is None
-    ):
-        raise ValueError("weekend_adjustment is required")
+    for required in ("weekend_adjustment", "start_date", "frequency"):
+        if required in update_data and update_data[required] is None:
+            raise ValueError(f"{required} is required")
 
     # A recurring transaction must always have an account — reject an explicit
     # null, and verify ownership of any new account_id.
@@ -121,8 +120,22 @@ async def update_recurring_transaction(
         if new_account_id != recurring.account_id:
             await _verify_account_in_workspace(session, workspace_id, new_account_id)
 
+    schedule_changed = any(
+        key in update_data and update_data[key] != getattr(recurring, key)
+        for key in _SCHEDULE_FIELDS
+    )
+    previous_next_occurrence = recurring.next_occurrence
+
     for key, value in update_data.items():
         setattr(recurring, key, value)
+
+    if schedule_changed:
+        recurring.next_occurrence = _first_occurrence_on_or_after(
+            recurring.start_date,
+            recurring.frequency,
+            intended_day=recurring.day_of_month or recurring.start_date.day,
+            floor=previous_next_occurrence,
+        )
 
     await session.commit()
     await session.refresh(recurring)
@@ -155,13 +168,15 @@ def _advance_date(
 ) -> date:
     """Advance a date by the given frequency.
 
-    For monthly, quarterly, and yearly recurrences, ``intended_day`` is the day
+    For monthly, quarterly, semiannual, and yearly recurrences, ``intended_day`` is the day
     the user actually wants (e.g. 31). We cap it to the target month's length
     so short months clamp, but subsequent occurrences recover to the intended
     day when it exists again. Falls back to ``current.day`` when not provided.
     """
     if frequency == "weekly":
         return current + timedelta(weeks=1)
+    if frequency == "biweekly":
+        return current + timedelta(weeks=2)
 
     target_day = intended_day if intended_day else current.day
     if frequency == "monthly":
@@ -177,6 +192,28 @@ def _advance_date(
 
     # Preserve the existing monthly fallback for unknown legacy values.
     return _advance_months(current, 1, target_day)
+
+
+# Fields the occurrence schedule is derived from; changing any of them moves
+# the next_occurrence pointer.
+_SCHEDULE_FIELDS = ("start_date", "day_of_month", "frequency")
+
+
+def _first_occurrence_on_or_after(
+    start: date, frequency: str, intended_day: Optional[int], floor: date,
+) -> date:
+    """Return the first occurrence of the schedule on or after ``floor``.
+
+    The schedule starts at ``start``, as on creation. ``floor`` is the pointer
+    before the edit: every occurrence before it was already generated or
+    matched, so the new pointer never moves behind it. That keeps an edit from
+    backfilling past periods or repeating one that was already charged, while a
+    ``start`` later than ``floor`` still defers the rule to ``start``.
+    """
+    current = start
+    while current < floor:
+        current = _advance_date(current, frequency, intended_day=intended_day)
+    return current
 
 
 def adjust_weekend_date(
@@ -228,28 +265,72 @@ def get_occurrences_in_range(
 
 
 async def generate_pending(
-    session: AsyncSession, user_id: uuid.UUID, up_to: Optional[date] = None
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    up_to: Optional[date] = None,
+    include_manual: bool = False,
+    workspace_id: Optional[uuid.UUID] = None,
 ) -> int:
     """Generate transactions for all pending recurring transactions up to a given date.
     If up_to is None, defaults to today. This allows the dashboard to pre-generate
     transactions for future months when the user navigates ahead.
+
+    Schedules with auto_generate off are left alone unless include_manual is
+    set: the hourly task must never materialize them, while the Generate
+    Pending button is the user asking for exactly that.
+
+    workspace_id narrows the run to one workspace. The button passes the
+    workspace it was authorized for, so a click there cannot write into
+    another workspace the user merely belongs to; unattended runs leave it
+    unset and cover all of them.
     Returns the count of transactions generated."""
-    cutoff = up_to or date.today()
+    # Unattended runs only touch schedules that opted in to auto-generation.
+    generation_filter = (
+        true() if include_manual else RecurringTransaction.auto_generate == True
+    )
+    if workspace_id is not None:
+        generation_filter = and_(
+            generation_filter, RecurringTransaction.workspace_id == workspace_id
+        )
+    # A person's recurring rows may live in several workspaces, and each
+    # workspace keeps its own calendar, so "today" is resolved per workspace.
+    # The query is bounded by the latest of those days and the loop below
+    # applies each row's own cutoff.
+    cutoffs: dict[uuid.UUID, date] = {}
+    if up_to is None:
+        workspace_ids = (
+            await session.execute(
+                select(RecurringTransaction.workspace_id)
+                .where(
+                    RecurringTransaction.user_id == user_id,
+                    RecurringTransaction.is_active == True,
+                    generation_filter,
+                )
+                .distinct()
+            )
+        ).scalars().all()
+        for ws_id in workspace_ids:
+            cutoffs[ws_id] = today_in(await get_workspace_timezone(session, ws_id))
+        if not cutoffs:
+            return 0
+        latest_cutoff = max(cutoffs.values())
+    else:
+        latest_cutoff = up_to
 
     result = await session.execute(
         select(RecurringTransaction)
         .where(
             RecurringTransaction.user_id == user_id,
             RecurringTransaction.is_active == True,
-            RecurringTransaction.auto_generate == True,
+            generation_filter,
             or_(
                 and_(
                     RecurringTransaction.weekend_adjustment == "previous_friday",
-                    RecurringTransaction.next_occurrence <= cutoff + timedelta(days=2),
+                    RecurringTransaction.next_occurrence <= latest_cutoff + timedelta(days=2),
                 ),
                 and_(
                     RecurringTransaction.weekend_adjustment != "previous_friday",
-                    RecurringTransaction.next_occurrence <= cutoff,
+                    RecurringTransaction.next_occurrence <= latest_cutoff,
                 ),
             ),
         )
@@ -263,6 +344,7 @@ async def generate_pending(
         # constraint — the user should edit the recurring to fix it.
         if recurring.account_id is None:
             continue
+        cutoff = up_to or cutoffs.get(recurring.workspace_id) or app_today()
         # Generate while the effective date is due. The nominal pointer remains
         # authoritative and is the only date used for schedule advancement and
         # end-date evaluation.

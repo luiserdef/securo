@@ -1,9 +1,11 @@
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
@@ -156,6 +158,57 @@ async def test_create_asset_with_initial_value(session: AsyncSession, test_user:
     assert result.current_value == 15000.0
     assert result.gain_loss == 3000.0
     assert result.value_count == 1
+
+
+@pytest.mark.asyncio
+async def test_create_asset_recovers_from_concurrent_external_id_conflict(monkeypatch):
+    workspace_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    existing_asset = Mock(id=uuid.uuid4())
+    missing_result = Mock()
+    missing_result.scalar_one_or_none.return_value = None
+    existing_result = Mock()
+    existing_result.scalar_one_or_none.return_value = existing_asset
+
+    session = Mock(spec=AsyncSession)
+    results = iter([missing_result, existing_result])
+
+    async def execute_scoped_lookup(statement):
+        statement_text = str(statement)
+        assert "assets.workspace_id" in statement_text
+        assert "assets.source" in statement_text
+        assert "assets.external_id" in statement_text
+        bound_values = set(statement.compile().params.values())
+        assert workspace_id in bound_values
+        assert "manual" in bound_values
+        assert "external-asset-1" in bound_values
+        return next(results)
+
+    session.execute = AsyncMock(side_effect=execute_scoped_lookup)
+    session.flush = AsyncMock(
+        side_effect=IntegrityError("INSERT INTO assets", {}, Exception("duplicate"))
+    )
+    session.rollback = AsyncMock()
+    session.add = Mock()
+    expected = Mock()
+    get_asset = AsyncMock(return_value=expected)
+    monkeypatch.setattr(asset_service, "get_asset", get_asset)
+
+    result = await asset_service.create_asset(
+        session,
+        workspace_id,
+        user_id,
+        AssetCreate(
+            name="External holding",
+            type="investment",
+            currency="USD",
+            external_id="external-asset-1",
+        ),
+    )
+
+    assert result is expected
+    session.rollback.assert_awaited_once()
+    get_asset.assert_awaited_once_with(session, existing_asset.id, workspace_id)
 
 
 @pytest.mark.asyncio
@@ -968,3 +1021,121 @@ async def test_get_assets_excludes_archived_by_default(session: AsyncSession, te
     names = [a.name for a in assets]
     assert "Visible" in names
     assert "Archived" not in names
+
+
+@pytest.mark.asyncio
+async def test_portfolio_trend_total_keeps_sub_cent_foreign_assets(
+    session: AsyncSession, test_user: User, test_workspace,
+):
+    """Low-priced foreign-currency holdings must add up in the trend total.
+
+    Three coins at 0.001 USD convert to 0.005 BRL each. Rounding every
+    holding to two decimals before summing lost them; summing first in
+    Decimal gives 0.015, shown as 0.02. A float sum would round it to 0.01.
+    """
+    today = date.today()
+    session.add(FxRate(
+        id=uuid.uuid4(), base_currency="USD", quote_currency="BRL",
+        date=today, rate=Decimal("5.0"), source="test",
+    ))
+    for i in range(3):
+        coin = Asset(
+            id=uuid.uuid4(), user_id=test_user.id, name=f"Coin {i}",
+            type="investment", currency="USD", valuation_method="market_price",
+            units=Decimal("1"), last_price=Decimal("0.001"), position=i,
+        )
+        session.add(coin)
+        await session.flush()
+        session.add(AssetValue(
+            id=uuid.uuid4(), asset_id=coin.id,
+            amount=Decimal("0.001"), date=today, source="sync",
+        ))
+    await session.commit()
+
+    result = await get_portfolio_trend(session, test_workspace.id, test_user.id)
+
+    assert result["trend"][-1]["_total"] == pytest.approx(0.02)
+    assert result["total"] == pytest.approx(0.02)
+@pytest.mark.asyncio
+async def test_portfolio_trend_excludes_assets_without_fx_rate(
+    session: AsyncSession, test_user: User, test_workspace,
+):
+    """issue #574: an asset whose currency has no resolvable FX rate cannot
+    be expressed in the user's primary currency, so it is excluded from the
+    chart series and the total instead of being summed at a fake 1:1 rate.
+    The BRL asset (the test user's primary currency) still appears and
+    defines the total."""
+    today = date.today()
+    session.add(FxRate(
+        id=uuid.uuid4(), base_currency="USD", quote_currency="BRL",
+        date=today, rate=Decimal("5.0"), source="test",
+    ))
+    brl_asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="House",
+        type="real_estate", currency="BRL", valuation_method="manual",
+        purchase_date=today - timedelta(days=1), purchase_price=Decimal("1000"),
+        position=0,
+    )
+    session.add(brl_asset)
+    await session.flush()
+    session.add(AssetValue(
+        id=uuid.uuid4(), asset_id=brl_asset.id,
+        amount=Decimal("1000"), date=today, source="manual",
+    ))
+    gbp_asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Cash",
+        type="cash", currency="GBP", valuation_method="manual",
+        purchase_date=today, purchase_price=Decimal("500"), position=1,
+    )
+    session.add(gbp_asset)
+    await session.flush()
+    session.add(AssetValue(
+        id=uuid.uuid4(), asset_id=gbp_asset.id,
+        amount=Decimal("500"), date=today, source="manual",
+    ))
+    await session.commit()
+
+    result = await get_portfolio_trend(session, test_workspace.id, test_user.id)
+
+    # Only the BRL asset is in the chart; the 500 GBP is not summed at 1:1.
+    assert [a["id"] for a in result["assets"]] == [str(brl_asset.id)]
+    assert str(gbp_asset.id) not in result["trend"][-1]
+    assert result["total"] == pytest.approx(1000.0)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_trend_checks_each_missing_currency_once(
+    session: AsyncSession, test_user: User, test_workspace, monkeypatch,
+):
+    """issue #574: a missing rate can trigger a provider sync, so several
+    assets in the same unconvertible currency must cost one lookup, not
+    one per asset."""
+    import app.services.asset_service as svc
+
+    today = date.today()
+    for position in range(3):
+        asset = Asset(
+            id=uuid.uuid4(), user_id=test_user.id, name=f"Cash {position}",
+            type="cash", currency="GBP", valuation_method="manual",
+            purchase_date=today, purchase_price=Decimal("100"), position=position,
+        )
+        session.add(asset)
+        await session.flush()
+        session.add(AssetValue(
+            id=uuid.uuid4(), asset_id=asset.id,
+            amount=Decimal("100"), date=today, source="manual",
+        ))
+    await session.commit()
+
+    calls: list[tuple[str, str]] = []
+
+    async def fake_has_rate(_session, from_currency, to_currency, *args, **kwargs):
+        calls.append((from_currency, to_currency))
+        return False
+
+    monkeypatch.setattr(svc, "has_rate", fake_has_rate)
+
+    result = await get_portfolio_trend(session, test_workspace.id, test_user.id)
+
+    assert result["total"] == 0.0
+    assert calls == [("GBP", "BRL")]

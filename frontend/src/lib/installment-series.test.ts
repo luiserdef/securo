@@ -12,7 +12,7 @@ const base: InstallmentSeriesFormInput = {
   categoryId: 'cat-1',
   payeeId: null,
   description: 'Notebook',
-  amount: '150.00',
+  amount: 150,
   date: '2026-08-06',
   type: 'debit',
   currency: 'BRL',
@@ -66,6 +66,12 @@ describe('buildInstallmentSeriesInput', () => {
     expect(buildInstallmentSeriesInput({ ...base, installmentFrequency: 'quarterly' }).frequency).toBe('quarterly')
     expect(buildInstallmentSeriesInput({ ...base, installmentFrequency: 'weekly' }).frequency).toBe('weekly')
     expect(buildInstallmentSeriesInput({ ...base, installmentFrequency: 'yearly' }).frequency).toBe('yearly')
+    expect(buildInstallmentSeriesInput({ ...base, installmentFrequency: 'biweekly' }).frequency).toBe(
+      'biweekly',
+    )
+    expect(
+      buildInstallmentSeriesInput({ ...base, installmentFrequency: 'semiannual' }).frequency,
+    ).toBe('semiannual')
   })
 
   it('omits currency when not set', () => {

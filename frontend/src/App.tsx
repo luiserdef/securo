@@ -2,10 +2,13 @@ import { lazy, Suspense } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeProvider } from '@/components/theme-provider'
-import { AuthProvider } from '@/contexts/auth-context'
-import { WorkspaceProvider } from '@/contexts/workspace-context'
-import { CollectionFilterProvider } from '@/contexts/collection-filter-context'
+import { AuthProvider } from '@/contexts/auth-provider'
+import { WorkspaceProvider } from '@/contexts/workspace-provider'
+import { CollectionFilterProvider } from '@/contexts/collection-filter-provider'
+import { SidebarStateProvider } from '@/contexts/sidebar-state-provider'
+import { useCrossTabRefresh } from '@/hooks/use-cross-tab-refresh'
 import { ProtectedRoute } from '@/components/protected-route'
 import { AdminRoute } from '@/components/admin-route'
 import { AgentsRoute } from '@/components/agents-route'
@@ -36,6 +39,9 @@ const AgentsListPage = lazy(() => import('@/pages/agents-list'))
 const AgentDetailPage = lazy(() => import('@/pages/agent-detail'))
 const AgentConnectionsPage = lazy(() => import('@/pages/agent-connections'))
 const InvoicesPage = lazy(() => import('@/pages/invoices'))
+const InvoiceSchedulesPage = lazy(() => import('@/pages/invoice-schedules'))
+const InvoiceScheduleDetailPage = lazy(() => import('@/pages/invoice-schedule-detail'))
+const ProductsPage = lazy(() => import('@/pages/products'))
 const InvoiceDetailPage = lazy(() => import('@/pages/invoice-detail'))
 const SharedInvoicePage = lazy(() => import('@/pages/shared-invoice'))
 const WorkspaceSettingsPage = lazy(() => import('@/pages/workspace-settings'))
@@ -59,10 +65,22 @@ function LoadingFallback() {
   )
 }
 
+/**
+ * Renders nothing; exists so `useCrossTabRefresh` can run where the
+ * `queryClient` is in scope: lists change in another tab and this tab
+ * refetches instead of serving the stale cache (issue #763).
+ */
+function CrossTabRefresh() {
+  useCrossTabRefresh()
+  return null
+}
+
 function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
+        <CrossTabRefresh />
+        <TooltipProvider>
         <BrowserRouter>
           <AuthProvider>
             <WorkspaceProvider>
@@ -81,7 +99,9 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <CollectionFilterProvider>
-                        <AppLayout />
+                        <SidebarStateProvider>
+                          <AppLayout />
+                        </SidebarStateProvider>
                       </CollectionFilterProvider>
                     </ProtectedRoute>
                   }
@@ -107,6 +127,10 @@ function App() {
                   <Route path="/groups" element={<ModuleRoute module="split_groups"><GroupsPage /></ModuleRoute>} />
                   <Route path="/groups/:id" element={<ModuleRoute module="split_groups"><GroupDetailPage /></ModuleRoute>} />
                   <Route path="/invoices" element={<ModuleRoute module="invoices"><InvoicesPage /></ModuleRoute>} />
+                  {/* Declared before `/invoices/:id`, which would otherwise take "schedules" for an id. */}
+                  <Route path="/invoices/schedules" element={<ModuleRoute module="invoices"><InvoiceSchedulesPage /></ModuleRoute>} />
+                  <Route path="/invoices/schedules/:id" element={<ModuleRoute module="invoices"><InvoiceScheduleDetailPage /></ModuleRoute>} />
+                  <Route path="/invoices/products" element={<ModuleRoute module="invoices"><ProductsPage /></ModuleRoute>} />
                   <Route path="/invoices/:id" element={<ModuleRoute module="invoices"><InvoiceDetailPage /></ModuleRoute>} />
                   <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
@@ -120,6 +144,7 @@ function App() {
             </WorkspaceProvider>
           </AuthProvider>
         </BrowserRouter>
+        </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
   )
