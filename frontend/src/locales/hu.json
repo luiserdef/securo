@@ -814,6 +814,17 @@
     "passkeyNeverUsed": "Soha"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "Áttekintés",
     "greetingMorning": "Jó reggelt",
     "greetingAfternoon": "Jó napot",
@@ -1177,6 +1188,7 @@
     "clearGroupFilter": "Csoportszűrő törlése"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "Számlák",
     "connectBank": "Bank csatlakoztatása",
     "confirmDeleteTitle": "Törlöd a számlát?",

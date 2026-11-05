@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -30,6 +31,7 @@ const api = vi.hoisted(() => ({
   payees: { list: vi.fn() },
   rules: { create: vi.fn(), list: vi.fn() },
   settings: { attachments: vi.fn() },
+  googleAuth: { validateAuth: vi.fn() },
 }))
 
 vi.mock('@/lib/api', () => api)
@@ -169,6 +171,11 @@ beforeEach(() => {
   api.payees.list.mockResolvedValue([])
   api.rules.list.mockResolvedValue([])
   api.settings.attachments.mockResolvedValue({ enabled: false })
+  api.googleAuth.validateAuth.mockResolvedValue({
+    isAuth: false,
+    redirect_uri: 'https://accounts.google.com/o/oauth2/auth',
+    last_sync_date: null,
+  })
 })
 
 describe('Dashboard net worth breakdown', () => {
@@ -766,5 +773,21 @@ describe('Dashboard refresh button', () => {
       '2026-04-01', undefined, ['2026-02-01'],
     )
     expect(screen.getByTestId('location-search')).toHaveTextContent('comparison_month=2026-02')
+  })
+})
+
+describe('Dashboard Google auth', () => {
+  it('enables Auth Google once validation returns a redirect URL', async () => {
+    renderWithProviders(
+      <StrictMode>
+        <TooltipProvider delayDuration={0}>
+          <DashboardPage />
+        </TooltipProvider>
+      </StrictMode>,
+    )
+
+    const button = await screen.findByRole('button', { name: /Auth Google/i })
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(api.googleAuth.validateAuth).toHaveBeenCalledTimes(1)
   })
 })

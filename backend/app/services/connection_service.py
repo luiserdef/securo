@@ -3016,13 +3016,6 @@ async def delete_connection(
     await session.commit()
     return True
 
-def _reauth(gmail_auth: GmailAuth, status: str) -> dict:
-    return {
-        "isAuth": False,
-        "status": status,
-        "redirect_uri": gmail_auth.get_auth_url(),
-    }
-
 async def get_credentials_provider(db: AsyncSession, user_id: uuid.UUID, provider: str) -> str | None:
     result = await db.execute(
         select(AuthConnection).where(
@@ -3059,18 +3052,29 @@ async def get_google_auth(
     creds, refreshed = await asyncio.to_thread(gmail_auth.get_valid_credentials, token_info)
 
     if creds:
-        if refreshed and conn:
-            conn.credentials = encrypt(json.dumps(gmail_auth.to_dict(creds)))
-            conn.status = "active"
-            # conn.last_used_at = datetime.now(timezone.utc)
-            if creds.expiry:  # google-auth devuelve expiry naive en UTC
-                conn.expires_at = creds.expiry.replace(tzinfo=timezone.utc)
-            await session.commit()
-        return {"isAuth": True, "redirect_uri": "", "last_sync_date": conn.last_used_at}
+        if conn:
+            changed = refreshed
+            if refreshed:
+                conn.credentials = encrypt(json.dumps(gmail_auth.to_dict(creds)))
+                if creds.expiry:  # google-auth devuelve expiry naive en UTC
+                    conn.expires_at = creds.expiry.replace(tzinfo=timezone.utc)
+            if conn.status != "active":
+                conn.status = "active"
+                changed = True
+            if changed:
+                await session.commit()
+
+        last_sync = conn.last_used_at if conn else None
+        return {
+            "isAuth": True,
+            "redirect_uri": "",
+            "last_sync_date": last_sync.isoformat() if last_sync else None,
+        }
 
     if conn:
-        conn.status = "expired"
-        await session.commit()
+        if conn.status != "expired":
+            conn.status = "expired"
+            await session.commit()
 
     secret = get_settings().secret_key.get_secret_value().encode("utf-8")
     payload = json.dumps(
@@ -3083,29 +3087,37 @@ async def get_google_auth(
 
     return {
         "isAuth": False,
-        "redirect_uri": gmail_auth.get_auth_url(state),
-        "last_sync_date": "",
+        "redirect_uri": gmail_auth.get_auth_url(state, token_info),
+        "last_sync_date": None,
     }
 
 async def google_auth_token(
-    token_code:str,
+    token_code: str,
     session: AsyncSession,
-    user_id: uuid.UUID
-)-> int:
+    user_id: uuid.UUID,
+) -> None:
     provider = "google-gmail"
 
     gmail_auth = GmailAuth()
+    conn = await get_credentials_provider(session, user_id, provider)
+
+    token_info = None
+    if conn and conn.credentials:
+        plaintext = decrypt(conn.credentials)
+        if plaintext:
+            try:
+                token_info = json.loads(plaintext)
+            except json.JSONDecodeError:
+                token_info = None
 
     try:
-        creds = await asyncio.to_thread(gmail_auth.exchange_code, token_code)
+        creds = await asyncio.to_thread(gmail_auth.exchange_code, token_code, token_info)
     except Exception as e:
         logger.exception("Falló el intercambio del code de Google")
         raise ValueError("Código de autorización inválido o expirado") from e
-    
+
     encrypted = encrypt(json.dumps(gmail_auth.to_dict(creds)))
     expires_at = creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry else None
-
-    conn = await get_credentials_provider(session, user_id,provider)
 
     if conn is None:
         conn = AuthConnection(
@@ -3113,14 +3125,12 @@ async def google_auth_token(
             provider=provider,
             auth_type="oauth2",
             credentials=encrypted,
-            status="active"
+            status="active",
         )
         session.add(conn)
     else:
         conn.credentials = encrypted
         conn.status = "active"
         conn.expires_at = expires_at
-        conn.last_used_at = datetime.now(timezone.utc)
 
     await session.commit()
-    return 

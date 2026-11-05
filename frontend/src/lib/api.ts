@@ -1448,10 +1448,14 @@ export const dashboard = {
     })
     return data
   },
-  syncEmails:async():Promise<{success_count:number; total_count:number, last_sync_date:string }> =>{
+  syncEmails: async (): Promise<{
+    success_count: number
+    total_count: number
+    last_sync_date: string | null
+  }> => {
     const { data } = await api.post('/dashboard/sync-email-transactions')
     return data
-  }
+  },
 }
 
 // Assets
@@ -2431,9 +2435,12 @@ export const publicInvoices = {
 }
 
 export const googleAuth = {
-    validateAuth:async():Promise<{ isAuth:boolean,redirect_uri:string, last_sync_date:string }> =>{
+  validateAuth: async (): Promise<{
+    isAuth: boolean
+    redirect_uri: string
+    last_sync_date: string | null
+  }> => {
     const { data } = await api.get('/connections/validate-google-auth')
     return data
-  }
-
+  },
 }

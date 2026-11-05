@@ -814,6 +814,17 @@
     "noAuthMethodConfigured": "Er is geen authenticatiemethode geconfigureerd. Neem contact op met de beheerder en controleer de OIDC-instellingen."
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "Dashboard",
     "greetingMorning": "Goedemorgen",
     "greetingAfternoon": "Goedemiddag",
@@ -1177,6 +1188,7 @@
     "clearGroupFilter": "Groepsfilter wissen"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "Rekeningen",
     "connectBank": "Bank verbinden",
     "confirmDeleteTitle": "Account verwijderen?",

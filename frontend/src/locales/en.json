@@ -814,6 +814,14 @@
     "passkeyNeverUsed": "Never"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "Dashboard",
     "greetingMorning": "Good morning",
     "greetingAfternoon": "Good afternoon",

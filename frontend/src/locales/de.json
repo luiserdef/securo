@@ -814,6 +814,17 @@
     "passkeyNeverUsed": "Nie"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "Dashboard",
     "greetingMorning": "Guten Morgen",
     "greetingAfternoon": "Guten Tag",
@@ -1177,6 +1188,7 @@
     "clearGroupFilter": "Gruppenfilter entfernen"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "Konten",
     "connectBank": "Bank verbinden",
     "confirmDeleteTitle": "Konto löschen?",

@@ -816,6 +816,14 @@
     "passkeyNeverUsed": "Nunca"
   },
   "dashboard": {
+    "popupBlocked": "Permite las ventanas emergentes para iniciar sesión con Google.",
+    "authGoogle": "Autenticar Google",
+    "authGoogleHint": "Autentica para sincronizar correos",
+    "syncEmails": "Sincronizar correos",
+    "lastUpdate": "Última actualización: {{date}}",
+    "never": "Nunca",
+    "syncEmailsResult": "Correos sincronizados: {{success}} de {{total}}",
+    "noEmailsToSync": "No hay correos para sincronizar",
     "title": "Inicio",
     "greetingMorning": "Buenos días",
     "greetingAfternoon": "Buenas tardes",

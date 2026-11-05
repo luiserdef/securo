@@ -194,9 +194,9 @@ export default function DashboardPage() {
   const monthParam = monthStart
   const uiLocale = i18n.resolvedLanguage ?? i18n.language
   const monthLabelStr = monthLabel(selectedMonth, uiLocale)
-  const [isGoogleUserAuth, setIsGoogleUserAuth] = useState(false)
-  const [googleUserAuthURL, setGoogleUserAuthURL] = useState<string>("")
   const [lastSyncEmails, setLastSyncEmails] = useState<string>("")
+  const [isGoogleUserAuth, setIsGoogleUserAuth] = useState(false)
+  const [googleUserAuthURL, setGoogleUserAuthURL] = useState("")
 
   const handleMonthChange = (newMonth: string) => {
     setSelectedMonth(newMonth)
@@ -423,81 +423,98 @@ export default function DashboardPage() {
     },
   })
   
-  useEffect(() => {
-    validateGoogleAuth.mutate()
-  },[])
-
-  const openGoogleAuthWindow = ()=>{
-      window.open(
-        googleUserAuthURL,
-        "google-auth",
-        "width=500,height=600,noopener,noreferrer"
-      )
+  const formatLastSync = (value: string | null | undefined) => {
+    if (!value) return t('dashboard.never')
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return t('dashboard.never')
+    return date.toLocaleString(uiLocale, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
   }
 
-  const validateGoogleAuth = useMutation({
+  const googleAuthValidation = useMutation({
     mutationFn: () => googleApi.validateAuth(),
     onSuccess: (result) => {
-      const isAuth = result.isAuth ?? false
-      const lastSyncDate = result.last_sync_date
-
-      setIsGoogleUserAuth(isAuth)
-
-      if (lastSyncDate != ""){
-        const date = new Date(lastSyncDate)
-        const dateFormat = date.toLocaleString("es-PA", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-        })
-        setLastSyncEmails(dateFormat)
-      }
-
-      if (isAuth == false){
-        setGoogleUserAuthURL(result.redirect_uri)
-      }
-
-      return 
+      setIsGoogleUserAuth(result.isAuth)
+      setGoogleUserAuthURL(result.isAuth ? '' : (result.redirect_uri ?? '').trim())
+      setLastSyncEmails(result.last_sync_date ?? '')
     },
     onError: (error) => {
+      setIsGoogleUserAuth(false)
+      setGoogleUserAuthURL('')
       toast.error(extractApiError(error))
     },
-  }) 
+  })
+
+  const { mutate: validateGoogleAuth } = googleAuthValidation
+
+  const didValidateGoogleAuth = useRef(false)
+  const googleAuthWindow = useRef<Window | null>(null)
+
+  useEffect(() => {
+    if (didValidateGoogleAuth.current) return
+    didValidateGoogleAuth.current = true
+    validateGoogleAuth()
+  }, [validateGoogleAuth])
+
+  useEffect(() => {
+    const handleGoogleAuthMessage = (event: MessageEvent) => {
+      // The callback page lives on the backend origin, so it cannot match
+      // window.location.origin. Match the popup we opened instead.
+      if (event.source !== googleAuthWindow.current) return
+      const data = event.data as { type?: string; message?: string } | null
+      if (data?.type === 'google-auth-success') {
+        googleAuthWindow.current = null
+        validateGoogleAuth()
+      } else if (data?.type === 'google-auth-error') {
+        toast.error(data.message || t('common.error'))
+      }
+    }
+
+    window.addEventListener('message', handleGoogleAuthMessage)
+    return () => window.removeEventListener('message', handleGoogleAuthMessage)
+  }, [validateGoogleAuth, t])
+
+  const openGoogleAuthWindow = () => {
+    if (!googleUserAuthURL) return
+    // No noopener/noreferrer: the callback page must keep window.opener so it
+    // can postMessage the dashboard when authentication finishes.
+    const popup = window.open(
+      googleUserAuthURL,
+      "google-auth",
+      "width=500,height=600"
+    )
+    if (!popup) {
+      toast.error(t('dashboard.popupBlocked'))
+      return
+    }
+    googleAuthWindow.current = popup
+  }
 
   const syncEmailTransaction = useMutation({
     mutationFn: () => dashboard.syncEmails(),
     onSuccess: (result) => {
       const total_count = result.total_count ?? 0
-      const lastSyncDate = result.last_sync_date
       const success_count = result.success_count ?? 0
 
-      if (total_count == 0) {
-        toast.success("No emails to sync")    
-      }
-      else{
-        toast.success(`Total Email sync Transaction: ${success_count} of ${total_count}`)
+      if (total_count === 0) {
+        toast.success(t('dashboard.noEmailsToSync'))
+      } else {
+        toast.success(t('dashboard.syncEmailsResult', {
+          success: success_count,
+          total: total_count,
+        }))
       }
 
-      if (lastSyncDate != ""){
-        const date = new Date(lastSyncDate)
-        const dateFormat = date.toLocaleString("es-PA", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-        })
-        setLastSyncEmails(dateFormat)
-      }
-      
+      setLastSyncEmails(result.last_sync_date ?? '')
     },
-      onError: (error) => {
+    onError: (error) => {
       toast.error(extractApiError(error))
     },
   })
@@ -923,22 +940,25 @@ const mergedCategories = useMemo(() => {
           <div className="flex items-center gap-1">
           {isGoogleUserAuth ? (
             <button
-              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
-              onClick={()=> syncEmailTransaction.mutate()}
+              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => syncEmailTransaction.mutate()}
+              disabled={syncEmailTransaction.isPending}
             >
-              <span className="text-sm">Sync Emails</span>
-              <span className="text-xs text-muted-foreground">Last update:{lastSyncEmails}</span>
+              <span className="text-sm">{t('dashboard.syncEmails')}</span>
+              <span className="text-xs text-muted-foreground">
+                {t('dashboard.lastUpdate', { date: formatLastSync(lastSyncEmails) })}
+              </span>
             </button>
-          ):(
+          ) : (
             <button
-              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
-              onClick={()=> openGoogleAuthWindow()}
+              className="flex flex-col items-center justify-center gap-0.5 border border-border rounded-lg px-3 py-1.5 bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={openGoogleAuthWindow}
+              disabled={!googleUserAuthURL}
             >
-              <span className="text-sm">Auth Google</span>
-              <span className="text-xs text-muted-foreground">Auth for sync Emails</span>
+              <span className="text-sm">{t('dashboard.authGoogle')}</span>
+              <span className="text-xs text-muted-foreground">{t('dashboard.authGoogleHint')}</span>
             </button>
-          )
-          }
+          )}
             <button
               className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:border-border hover:text-foreground transition-all text-base"
               onClick={() => handleMonthChange(shiftMonth(selectedMonth, -1))}

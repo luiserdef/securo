@@ -285,17 +285,55 @@ def model_response(texto: str, model: str = "gemma3:4b") -> dict:
     return json.loads(response)
 
 
-def build_flow() -> Flow:
+GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+def _client_config(token_info: dict | None = None) -> tuple[dict, str]:
+    """Build a Google OAuth client config from settings or a stored token.
+
+    A token saved by google-auth already carries ``client_id`` and
+    ``client_secret``, which lets an existing user re-authenticate even when
+    the application credentials live only in the database. Settings win so a
+    rotated secret in .env takes effect immediately.
+    """
     settings = get_settings()
-    creds = json.loads(settings.google_client_creds.get_secret_value())
+    client_id = settings.google_client_id.strip()
+    client_secret = settings.google_client_secret.get_secret_value().strip()
 
-    client_key = "web" if "web" in creds else "installed"
-    redirect_uri = creds[client_key]["redirect_uris"][0]
+    if token_info:
+        client_id = client_id or str(token_info.get("client_id") or "")
+        client_secret = client_secret or str(token_info.get("client_secret") or "")
 
+    redirect_uri = settings.google_oauth_redirect_uri.strip()
+    if not client_id or not client_secret:
+        raise ValueError(
+            "Google OAuth no está configurado: faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET"
+        )
+    if not redirect_uri:
+        raise ValueError(
+            "Google OAuth no está configurado: falta GOOGLE_OAUTH_REDIRECT_URI"
+        )
+
+    token_uri = (token_info or {}).get("token_uri") or GOOGLE_TOKEN_URI
+    config = {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": GOOGLE_AUTH_URI,
+            "token_uri": token_uri,
+            "redirect_uris": [redirect_uri],
+        }
+    }
+    return config, redirect_uri
+
+
+def build_flow(token_info: dict | None = None) -> Flow:
+    config, redirect_uri = _client_config(token_info)
     flow = Flow.from_client_config(
-        creds,
+        config,
         scopes=SCOPES,
-        redirect_uri=redirect_uri
+        redirect_uri=redirect_uri,
     )
     flow.autogenerate_code_verifier = False
     return flow
@@ -305,8 +343,8 @@ class AuthError(Exception):
 
 class GmailAuth():
 
-    def exchange_code(self, code: str) -> Credentials:
-        flow = build_flow()
+    def exchange_code(self, code: str, token_info: dict | None = None) -> Credentials:
+        flow = build_flow(token_info)
         flow.fetch_token(code=code)
         return flow.credentials
 
@@ -341,12 +379,12 @@ class GmailAuth():
 
             return None, False
 
-    def get_auth_url(self,state:str) -> str:
-        flow = build_flow()
+    def get_auth_url(self, state: str, token_info: dict | None = None) -> str:
+        flow = build_flow(token_info)
         auth_url, _ = flow.authorization_url(
             access_type="offline",
             prompt="consent",
-            state = state,
+            state=state,
         )
         return auth_url
 

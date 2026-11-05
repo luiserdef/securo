@@ -208,8 +208,11 @@ class Settings(BaseSettings):
     # this, the very same key written into the .env file aborted startup with
     # "Extra inputs are not permitted".
 
-    # GoogleSecret
+    # Google OAuth (Gmail sync)
     gemimini_api_key: SecretStr = SecretStr("")
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    google_oauth_redirect_uri: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(".env", Path(__file__).resolve().parents[2] / ".env"),

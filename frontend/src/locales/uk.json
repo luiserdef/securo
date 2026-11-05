@@ -822,6 +822,17 @@
     "passkeyNeverUsed": "Ніколи"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "Панель",
     "greetingMorning": "Доброго ранку",
     "greetingAfternoon": "Добрий день",
@@ -1191,6 +1202,7 @@
     "clearGroupFilter": "Скинути фільтр групи"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "Рахунки",
     "connectBank": "Підключити банк",
     "confirmDeleteTitle": "Видалити рахунок?",

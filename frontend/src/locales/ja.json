@@ -814,6 +814,17 @@
     "passkeyNeverUsed": "未使用"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "ダッシュボード",
     "greetingMorning": "おはようございます",
     "greetingAfternoon": "こんにちは",
@@ -1177,6 +1188,7 @@
     "clearGroupFilter": "グループフィルターを解除"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "口座",
     "connectBank": "銀行を接続",
     "confirmDeleteTitle": "口座を削除しますか?",

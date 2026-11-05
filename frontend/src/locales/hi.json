@@ -814,6 +814,17 @@
     "passkeyNeverUsed": "कभी नहीं"
   },
   "dashboard": {
+    "popupBlocked": "Allow pop-ups to sign in with Google.",
+    "otherCategories": "Other Categories",
+    "groupedView": "Grouped",
+    "detailedView": "Detailed",
+    "authGoogle": "Auth Google",
+    "authGoogleHint": "Auth for sync Emails",
+    "syncEmails": "Sync Emails",
+    "lastUpdate": "Last update: {{date}}",
+    "never": "Never",
+    "syncEmailsResult": "Synced emails: {{success}} of {{total}}",
+    "noEmailsToSync": "No emails to sync",
     "title": "डैशबोर्ड",
     "greetingMorning": "सुप्रभात",
     "greetingAfternoon": "नमस्कार",
@@ -1177,6 +1188,7 @@
     "clearGroupFilter": "समूह फ़िल्टर हटाएँ"
   },
   "accounts": {
+    "typeDebitCard": "Debit Card",
     "title": "खाते",
     "connectBank": "बैंक कनेक्ट करें",
     "confirmDeleteTitle": "खाता हटाएँ?",
